@@ -16,6 +16,7 @@ import (
 	"f95rpc/internal/presence"
 	"f95rpc/internal/presence/discord"
 	"f95rpc/internal/store"
+	"f95rpc/internal/version"
 	"f95rpc/internal/watcher"
 )
 
@@ -78,7 +79,7 @@ func handleRun(args []string) {
 	defer s.Close()
 
 	// Print Startup Banner
-	fmt.Printf("=== f95rpc Daemon (v%s) ===\n", Version)
+	fmt.Printf("=== f95rpc Daemon (%s) ===\n", version.Version)
 	devNote := ""
 	if isDev {
 		devNote = " (development mode)"

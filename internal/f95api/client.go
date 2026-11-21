@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"f95rpc/internal/version"
 )
 
 const (
@@ -109,7 +111,7 @@ func (c *Client) do(req *http.Request) ([]byte, error) {
 	c.lastCall = time.Now()
 	c.mu.Unlock()
 
-	req.Header.Set("User-Agent", "f95rpc/0.1")
+	req.Header.Set("User-Agent", "f95rpc/"+strings.TrimPrefix(version.Version, "v"))
 	if c.apiKey != "" {
 		req.Header.Set("X-API-Key", c.apiKey)
 	}

@@ -12,9 +12,8 @@ import (
 	"f95rpc/internal/config"
 	"f95rpc/internal/store"
 	"f95rpc/internal/traycontrol"
+	"f95rpc/internal/version"
 )
-
-const Version = "0.1.0-dev"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -27,7 +26,7 @@ func main() {
 
 	switch cmd {
 	case "version", "--version", "-v":
-		fmt.Printf("f95rpc v%s\n", Version)
+		fmt.Printf("f95rpc %s\n", version.Version)
 
 	case "start":
 		handleStart(args)
@@ -76,7 +75,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Printf("f95rpc v%s — Discord Rich Presence for F95zone games\n\n", Version)
+	fmt.Printf("f95rpc %s — Discord Rich Presence for F95zone games\n\n", version.Version)
 	fmt.Println("Usage: f95rpc <command> [options]")
 	fmt.Println("\nCommands:")
 	fmt.Println("  start                    Launch f95rpc in the Windows system tray")

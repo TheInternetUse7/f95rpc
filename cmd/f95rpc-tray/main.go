@@ -18,6 +18,7 @@ import (
 	"f95rpc/internal/presence/discord"
 	"f95rpc/internal/store"
 	"f95rpc/internal/traycontrol"
+	"f95rpc/internal/version"
 	"f95rpc/internal/watcher"
 )
 
@@ -49,9 +50,10 @@ func main() {
 }
 
 func onReady(stopRequested <-chan struct{}) {
+	appTitle := fmt.Sprintf("f95rpc %s", version.Version)
 	systray.SetIcon(assets.IconICO)
-	systray.SetTitle("f95rpc")
-	systray.SetTooltip("f95rpc — Discord Rich Presence for F95zone")
+	systray.SetTitle(appTitle)
+	systray.SetTooltip(appTitle + " — Discord Rich Presence for F95zone")
 
 	// Load configuration
 	cfgPath, isDev, err := config.ResolveConfigPath("")
@@ -94,6 +96,10 @@ func onReady(stopRequested <-chan struct{}) {
 	w := watcher.NewWatcher(cfg, s, api, prov, nil)
 
 	// Menu UI items
+	mVersion := systray.AddMenuItem(appTitle, "Build version")
+	mVersion.Disable()
+	systray.AddSeparator()
+
 	mStatus := systray.AddMenuItem("Status: Idle", "Current Discord RPC status")
 	mStatus.Disable()
 
@@ -140,7 +146,7 @@ func onReady(stopRequested <-chan struct{}) {
 			}
 			mCover.SetTitle("Toggle Cover Art (No active game)")
 			mCover.Disable()
-			systray.SetTooltip("f95rpc — Idle")
+			systray.SetTooltip(appTitle + " — Idle")
 		} else {
 			mStatus.SetTitle(fmt.Sprintf("Playing: %s", game.Title))
 			mCover.Enable()
@@ -149,7 +155,7 @@ func onReady(stopRequested <-chan struct{}) {
 			} else {
 				mCover.SetTitle("Show Game Cover Art")
 			}
-			systray.SetTooltip(fmt.Sprintf("f95rpc — Playing: %s", game.Title))
+			systray.SetTooltip(fmt.Sprintf("%s — Playing: %s", appTitle, game.Title))
 		}
 	}
 
@@ -189,15 +195,15 @@ func onReady(stopRequested <-chan struct{}) {
 				if newStealth {
 					mStealth.Check()
 					mStatus.SetTitle("Status: Paused (Stealth Mode)")
-					systray.SetTooltip("f95rpc — Paused (Stealth Mode)")
+					systray.SetTooltip(appTitle + " — Paused (Stealth Mode)")
 				} else {
 					mStealth.Uncheck()
 					if ag := w.GetCurrentActiveGame(); ag != nil {
 						mStatus.SetTitle(fmt.Sprintf("Playing: %s", ag.Title))
-						systray.SetTooltip(fmt.Sprintf("f95rpc — Playing: %s", ag.Title))
+						systray.SetTooltip(fmt.Sprintf("%s — Playing: %s", appTitle, ag.Title))
 					} else {
 						mStatus.SetTitle("Status: Idle")
-						systray.SetTooltip("f95rpc — Idle")
+						systray.SetTooltip(appTitle + " — Idle")
 					}
 				}
 

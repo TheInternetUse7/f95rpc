@@ -15,6 +15,11 @@ import (
 )
 
 func TestTrayStopRequestClosesSQLite(t *testing.T) {
+	// Hosted CI runners may have no Explorer shell for Shell_NotifyIcon.
+	// Kernel IPC and SQLite shutdown remain covered by the CLI integration test.
+	if windows.GetShellWindow() == 0 {
+		t.Skip("tray GUI integration requires an Explorer desktop")
+	}
 	lockShutdownTests(t)
 	mutexName, _ := windows.UTF16PtrFromString(AppMutexName)
 	mutex, err := windows.OpenMutex(windows.SYNCHRONIZE, false, mutexName)

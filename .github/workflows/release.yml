@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.deleted == false
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GOOS: windows
+      GOARCH: amd64
+      CGO_ENABLED: '0'
+      RELEASE_TAG: ${{ github.ref_name }}
+
+    steps:
+      - name: Check out the pushed tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate the release tag
+        run: |
+          . ./scripts/release-functions.ps1
+          Assert-ReleaseTag -Tag $env:RELEASE_TAG -Repository $env:GITHUB_WORKSPACE
+
+      - name: Run Go tests
+        run: go test ./... -count=1 -timeout=120s
+
+      - name: Run Go vet
+        run: go vet ./...
+
+      - name: Test release metadata and packaging
+        run: ./scripts/test-release.ps1
+
+      - name: Build and verify both executables
+        id: build
+        run: |
+          $release = & ./scripts/build-release.ps1 -Tag $env:RELEASE_TAG
+          $archive = [IO.Path]::GetRelativePath($env:GITHUB_WORKSPACE, $release.ArchivePath).Replace('\', '/')
+          $checksum = [IO.Path]::GetRelativePath($env:GITHUB_WORKSPACE, $release.ChecksumPath).Replace('\', '/')
+          "archive=$archive" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "checksum=$checksum" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "prerelease=$($release.IsPrerelease.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: f95rpc ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: ${{ steps.build.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.build.outputs.prerelease == 'true' && 'false' || 'legacy' }}
+          fail_on_unmatched_files: true
+          overwrite_files: false
+          files: |
+            ${{ steps.build.outputs.archive }}
+            ${{ steps.build.outputs.checksum }}

@@ -18,9 +18,11 @@
 
 ## Getting Started
 
-### 1. Build
+### 1. Download or Build
 
-Requires **Go 1.22+**:
+Download `f95rpc-vX.Y.Z-windows-amd64.zip` from the [Releases page](https://github.com/TheInternetUse7/f95rpc/releases) and extract the entire ZIP into one folder. Keep `f95rpc.exe` and `f95rpc-tray.exe` together: the CLI's `start` command launches the companion beside it. The ZIP also contains `config.example.yaml` and this README.
+
+To build from source, use the Go version specified in [`go.mod`](go.mod):
 
 ```powershell
 # Build the CLI tool
@@ -29,6 +31,8 @@ go build -o f95rpc.exe ./cmd/f95rpc
 # Build the background System Tray companion (zero console window)
 go build -ldflags="-H windowsgui" -o f95rpc-tray.exe ./cmd/f95rpc-tray
 ```
+
+Plain `go build` binaries report `dev`. Use the [tagged release builder](#tagged-releases) to embed a release version and Windows file properties.
 
 ### 2. Discord Application Setup
 
@@ -111,6 +115,7 @@ Runs completely silently in the background with zero CMD window:
 
 **Tray Menu Features:**
 
+- **Build Version:** Shows the same Git tag as `f95rpc version`.
 - **Live Status:** Displays current game title.
 - **Toggle Cover Art (Active Game):** Flips the active game between F95 logo and game cover art.
 - **Stealth Mode (Pause RPC):** Instantly clears and pauses Discord Rich Presence.
@@ -159,6 +164,24 @@ All unit tests use standard Go testing and run zero-CGO SQLite in temporary isol
 ```powershell
 go test ./...
 ```
+
+---
+
+[`release.yml`](.github/workflows/release.yml) checks out that exact tag, uses the Go version from `go.mod`, runs tests and vet, builds both Windows x64 executables, and publishes a GitHub Release with generated notes and two assets:
+
+- `f95rpc-v0.1.0-windows-amd64.zip`
+- `SHA256SUMS.txt`
+
+For a local release build on Windows with PowerShell 7, start from a clean checkout of the tag:
+
+```powershell
+git switch --detach v0.1.0
+pwsh -NoProfile -File scripts/build-release.ps1 -Tag v0.1.0
+```
+
+The builder refuses missing tags or tags pointing at a different commit, verifies both EXEs' versions and console/GUI settings, and writes the ZIP and checksum to `dist/`. Its pinned resource generator is build-only; running the downloaded EXEs does not require Go, PowerShell, or an external assets folder.
+
+To upgrade, stop or quit the existing tray, then replace **both** EXEs together. Preserve your `config.yaml` and database; do not copy the example configuration over an existing configuration. Release binaries are not code-signed, so Windows may still show SmartScreen or unknown-publisher warnings.
 
 ---
 
