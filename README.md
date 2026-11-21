@@ -7,6 +7,7 @@
 ## Key Highlights
 
 - **Confirmed-Only Broadcasting:** Only games that have been confirmed via scan, library import, or explicit manual binding appear on Discord.
+- **Automatic Catalog Enrichment:** Approved F95 thread links get full metadata after import/approval, with background backfill and refresh for existing libraries when an API key is configured.
 - **Zero Asset Uploads Required:** Uses direct public URLs for image assets. You don't need to create a Discord Developer Application or upload icons to Developer Portal.
 - **Status Display Type Details:** Discord status in member lists reads **`Playing <Game Title>`**.
 - **Arbitrary Root Folders (`N` Roots):** Add any number of game directories. Uses safe Windows path matching (case-insensitive, directory-boundary checked, with longest-prefix nested root resolution and exclusion rules).
@@ -217,10 +218,14 @@ Key settings in `config.yaml`:
 
 ### How It Works
 
-- **Metadata Enrichment:** When scanning folders or importing from F95Checker/Playnite, `f95rpc` queries `f95api.xyz` to automatically fetch titles, creators, game engines, versions, and ratings.
+- **Full-Detail Enrichment:** Imports, scan approvals (including manually entered thread IDs), and `bind` use the full-details endpoint to fetch titles, creators, engines, status, ratings, covers/banners, thread links, and catalog versions. Unapproved, ignored, and non-F95 entries are skipped.
+- **Existing Library Backfill:** Both the tray and `f95rpc run` backfill approved games at startup, without needing games to be running. A separate worker checks for missing/stale metadata every minute and refreshes successful lookups after 24 hours. Existing partial search/batch records are eligible for backfill.
+- **Local State Is Preserved:** Catalog updates never change installed versions, approval/ignore flags, local engine/executable hints, custom titles, or cover preferences. An unknown installed version stays unknown in SQLite; presence may still display the catalog version as its fallback.
 - **Direct Image Hosting:** Images returned by the API (`cover`, `banner`, `previews`) are direct public URLs on `preview.f95zone.to`, allowing Discord to display them instantly without requiring you to manually upload art to Discord's Developer Portal.
 - **Client Throttling:** `f95rpc` enforces a minimum 500ms delay between consecutive API calls (~120 requests/minute maximum) to respect server capacity and avoid HTTP 429 rate limits.
 - **Key Authentication:** Pass your key in `config.yaml` (`f95api_key`) or via the `F95API_KEY` environment variable. Sent as the `X-API-Key` request header.
+
+After upgrading both EXEs, restart the tray to enable backfill for your existing database. Restart it after changing the API key, too.
 
 ### Key API Endpoints
 

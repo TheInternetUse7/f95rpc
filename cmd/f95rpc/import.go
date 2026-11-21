@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"f95rpc/internal/config"
+	"f95rpc/internal/enrichment"
 	"f95rpc/internal/f95api"
 	"f95rpc/internal/importers"
 	"f95rpc/internal/store"
@@ -233,7 +233,7 @@ func saveAndEnrichGames(games []importers.ImportedGame, cfg *config.Config, dryR
 	defer st.Close()
 
 	var importedCount int
-	var threadIDs []int64
+	var enrichmentFolders []string
 
 	for _, g := range games {
 		rec := &store.GameRecord{
@@ -246,12 +246,17 @@ func saveAndEnrichGames(games []importers.ImportedGame, cfg *config.Config, dryR
 			InstalledVersion: g.InstalledVersion,
 			ExeHint:          g.ExeHint,
 			ThreadURL:        fmt.Sprintf("https://f95zone.to/threads/%d", g.ThreadID),
-			LastFetchedAt:    time.Time{},
 		}
 		if g.ThreadID <= 0 {
 			rec.ThreadURL = ""
-		} else {
-			threadIDs = append(threadIDs, g.ThreadID)
+		}
+		existing, err := st.GetGameByFolder(g.FolderPath)
+		if err != nil {
+			fmt.Printf("  [WARN] Failed to load existing preferences for %s: %v\n", g.Name, err)
+			continue
+		}
+		if existing != nil {
+			rec.Ignored = existing.Ignored
 		}
 
 		if err := st.UpsertGame(rec); err != nil {
@@ -259,57 +264,18 @@ func saveAndEnrichGames(games []importers.ImportedGame, cfg *config.Config, dryR
 			continue
 		}
 		importedCount++
+		if rec.Approved && !rec.Ignored && rec.ThreadID > 0 {
+			enrichmentFolders = append(enrichmentFolders, rec.FolderPath)
+		}
 	}
 
 	fmt.Printf("Saved %d games to local registry (f95rpc.db).\n", importedCount)
 
-	// Enrich metadata via f95api
-	if cfg.F95APIKey != "" && len(threadIDs) > 0 {
-		fmt.Printf("Fetching online catalog metadata for %d games from f95api.xyz...\n", len(threadIDs))
+	if cfg.F95APIKey != "" && len(enrichmentFolders) > 0 {
+		fmt.Printf("Fetching full catalog metadata for %d approved games from f95api.xyz...\n", len(enrichmentFolders))
 		client := f95api.NewClient(cfg.F95APIKey)
-
-		chunkSize := 50
-		for i := 0; i < len(threadIDs); i += chunkSize {
-			end := i + chunkSize
-			if end > len(threadIDs) {
-				end = len(threadIDs)
-			}
-			chunk := threadIDs[i:end]
-			batchRes, err := client.GetBatch(chunk)
-			if err != nil {
-				fmt.Printf("  [WARN] Batch metadata fetch failed for chunk: %v\n", err)
-				continue
-			}
-
-			for _, summary := range batchRes.Results {
-				for _, g := range games {
-					if g.ThreadID == summary.ThreadID {
-						rec, err := st.GetGameByFolder(g.FolderPath)
-						if err == nil && rec != nil {
-							if summary.Title != "" {
-								rec.Title = summary.Title
-							}
-							if summary.Creator != "" {
-								rec.Creator = summary.Creator
-							}
-							if summary.Cover != nil && *summary.Cover != "" {
-								rec.CoverURL = *summary.Cover
-							}
-							if summary.Banner != nil && *summary.Banner != "" {
-								rec.BannerURL = *summary.Banner
-							}
-							if summary.Version != "" {
-								rec.CatalogVersion = summary.Version
-							}
-							rec.LastFetchedAt = time.Now()
-							_ = st.UpsertGame(rec)
-						}
-					}
-				}
-			}
-		}
-		fmt.Println("Metadata enrichment complete!")
-	} else if len(threadIDs) > 0 {
+		enrichSavedGames(enrichment.New(st, client), enrichmentFolders)
+	} else if len(enrichmentFolders) > 0 {
 		fmt.Println("Tip: Set f95api_key in config.yaml to automatically fetch cover art and catalog metadata.")
 	}
 

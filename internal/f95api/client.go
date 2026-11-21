@@ -1,6 +1,7 @@
 package f95api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,23 @@ type Client struct {
 	mu         sync.Mutex
 	lastCall   time.Time
 	minDelay   time.Duration
+}
+
+type HTTPError struct {
+	StatusCode int
+	RetryAfter time.Duration
+}
+
+func (e *HTTPError) Error() string {
+	switch e.StatusCode {
+	case http.StatusTooManyRequests:
+		return "rate limited by f95api (HTTP 429)"
+	case http.StatusUnauthorized:
+		return "unauthorized: invalid or missing f95api key (HTTP 401)"
+	case http.StatusForbidden:
+		return "forbidden: f95api key lacks permission (HTTP 403)"
+	}
+	return fmt.Sprintf("f95api returned HTTP %d", e.StatusCode)
 }
 
 func NewClient(apiKey string) *Client {
@@ -98,18 +116,32 @@ type ThreadSummary struct {
 }
 
 type ThreadBatchResponse struct {
-	Results map[string]ThreadSummary `json:"results"`
+	// Normalize the API's items array to a lookup keyed by thread ID.
+	Results map[string]ThreadSummary
 }
 
 func (c *Client) do(req *http.Request) ([]byte, error) {
-	c.mu.Lock()
-	now := time.Now()
-	elapsed := now.Sub(c.lastCall)
-	if elapsed < c.minDelay {
-		time.Sleep(c.minDelay - elapsed)
+	for {
+		if err := req.Context().Err(); err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		wait := time.Until(c.lastCall.Add(c.minDelay))
+		if wait <= 0 {
+			c.lastCall = time.Now()
+			c.mu.Unlock()
+			break
+		}
+		c.mu.Unlock()
+
+		timer := time.NewTimer(wait)
+		select {
+		case <-req.Context().Done():
+			timer.Stop()
+			return nil, req.Context().Err()
+		case <-timer.C:
+		}
 	}
-	c.lastCall = time.Now()
-	c.mu.Unlock()
 
 	req.Header.Set("User-Agent", "f95rpc/"+strings.TrimPrefix(version.Version, "v"))
 	if c.apiKey != "" {
@@ -127,14 +159,17 @@ func (c *Client) do(req *http.Request) ([]byte, error) {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, fmt.Errorf("rate limited by f95api (HTTP 429)")
-	}
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("unauthorized: invalid or missing f95api key (HTTP 401)")
-	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("f95api returned HTTP %d: %s", resp.StatusCode, string(body))
+		httpErr := &HTTPError{StatusCode: resp.StatusCode}
+		retryAfter := strings.TrimSpace(resp.Header.Get("Retry-After"))
+		if seconds, err := strconv.ParseUint(retryAfter, 10, 32); err == nil {
+			httpErr.RetryAfter = time.Duration(seconds) * time.Second
+		} else if deadline, err := http.ParseTime(retryAfter); err == nil {
+			if delay := time.Until(deadline); delay > 0 {
+				httpErr.RetryAfter = delay
+			}
+		}
+		return nil, httpErr
 	}
 
 	return body, nil
@@ -163,8 +198,15 @@ func (c *Client) Search(query string, limit int) (*SearchResponse, error) {
 }
 
 func (c *Client) GetHandiwork(threadID int64) (*Handiwork, error) {
+	return c.GetHandiworkContext(context.Background(), threadID)
+}
+
+func (c *Client) GetHandiworkContext(ctx context.Context, threadID int64) (*Handiwork, error) {
+	if threadID <= 0 {
+		return nil, fmt.Errorf("invalid F95 thread ID: %d", threadID)
+	}
 	endpoint := fmt.Sprintf("%s/v1/f95/handiwork?thread_id=%d", c.baseURL, threadID)
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +219,9 @@ func (c *Client) GetHandiwork(threadID int64) (*Handiwork, error) {
 	var res Handiwork
 	if err := json.Unmarshal(data, &res); err != nil {
 		return nil, fmt.Errorf("decode handiwork response: %w", err)
+	}
+	if res.ID != threadID {
+		return nil, fmt.Errorf("handiwork response has thread ID %d, expected %d", res.ID, threadID)
 	}
 	return &res, nil
 }
@@ -202,9 +247,18 @@ func (c *Client) GetBatch(threadIDs []int64) (*ThreadBatchResponse, error) {
 		return nil, err
 	}
 
-	var res ThreadBatchResponse
-	if err := json.Unmarshal(data, &res); err != nil {
+	var response struct {
+		Items []ThreadSummary `json:"items"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, fmt.Errorf("decode batch response: %w", err)
 	}
-	return &res, nil
+	if response.Items == nil {
+		return nil, fmt.Errorf("decode batch response: missing items array")
+	}
+	res := &ThreadBatchResponse{Results: make(map[string]ThreadSummary, len(response.Items))}
+	for _, item := range response.Items {
+		res.Results[strconv.FormatInt(item.ThreadID, 10)] = item
+	}
+	return res, nil
 }

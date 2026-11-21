@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"f95rpc/internal/config"
+	"f95rpc/internal/enrichment"
 	"f95rpc/internal/f95api"
 	"f95rpc/internal/importers"
 	"f95rpc/internal/scanner"
@@ -65,8 +65,10 @@ func handleScan(args []string) {
 	defer st.Close()
 
 	var client *f95api.Client
+	var enricher *enrichment.Enricher
 	if cfg.F95APIKey != "" {
 		client = f95api.NewClient(cfg.F95APIKey)
+		enricher = enrichment.New(st, client)
 	}
 
 	reader := bufio.NewReader(os.Stdin)
@@ -161,7 +163,10 @@ func handleScan(args []string) {
 				ExeHint:          g.ExeHint,
 				ThreadURL:        fmt.Sprintf("https://f95zone.to/threads/%d", threadID),
 			}
-			_ = st.UpsertGame(rec)
+			if _, err := saveAndEnrichApprovedGame(st, rec, enricher); err != nil {
+				fmt.Printf("      [WARN] Failed to approve game: %v\n", err)
+				continue
+			}
 			fmt.Printf("      Successfully bound to thread %d and approved!\n", threadID)
 
 		default:
@@ -179,7 +184,6 @@ func handleScan(args []string) {
 					DetectedEngine:   g.Engine,
 					ExeHint:          g.ExeHint,
 					ThreadURL:        fmt.Sprintf("https://f95zone.to/threads/%d", hit.ThreadID),
-					LastFetchedAt:    time.Now(),
 				}
 				if hit.Cover != nil {
 					rec.CoverURL = *hit.Cover
@@ -190,8 +194,12 @@ func handleScan(args []string) {
 				if hit.Score != nil {
 					rec.Rating = *hit.Score
 				}
-				_ = st.UpsertGame(rec)
-				fmt.Printf("      Successfully approved '%s' (Thread %d)!\n", hit.Title, hit.ThreadID)
+				saved, err := saveAndEnrichApprovedGame(st, rec, enricher)
+				if err != nil {
+					fmt.Printf("      [WARN] Failed to approve game: %v\n", err)
+					continue
+				}
+				fmt.Printf("      Successfully approved '%s' (Thread %d)!\n", saved.Title, hit.ThreadID)
 			} else {
 				fmt.Println("      Invalid selection. Skipped.")
 			}
@@ -248,48 +256,17 @@ func handleBind(args []string) {
 		ThreadURL:        fmt.Sprintf("https://f95zone.to/threads/%d", threadID),
 	}
 
-	// Fetch metadata from f95api if API key is configured
+	var enricher *enrichment.Enricher
 	cfgPath, _, _ := config.ResolveConfigPath("")
 	cfg, _ := config.Load(cfgPath)
 	if cfg != nil && cfg.F95APIKey != "" {
 		fmt.Printf("Fetching metadata for F95 Thread %d from f95api.xyz...\n", threadID)
 		client := f95api.NewClient(cfg.F95APIKey)
-		hw, err := client.GetHandiwork(threadID)
-		if err == nil && hw != nil {
-			if hw.Name != "" {
-				rec.Title = hw.Name
-			}
-			if len(hw.Authors) > 0 && hw.Authors[0].Name != "" {
-				rec.Creator = hw.Authors[0].Name
-			}
-			if hw.Engine != "" {
-				rec.Engine = hw.Engine
-			}
-			if hw.Status != "" {
-				rec.Status = hw.Status
-			}
-			if hw.Version != "" {
-				rec.CatalogVersion = hw.Version
-				if rec.InstalledVersion == "" {
-					rec.InstalledVersion = hw.Version
-				}
-			}
-			if hw.Cover != nil && *hw.Cover != "" {
-				rec.CoverURL = *hw.Cover
-			}
-			if hw.Banner != nil && *hw.Banner != "" {
-				rec.BannerURL = *hw.Banner
-			}
-			if hw.Rating.Average > 0 {
-				rec.Rating = hw.Rating.Average
-			}
-			rec.LastFetchedAt = time.Now()
-		} else if err != nil {
-			fmt.Printf("Notice: Could not fetch API metadata (%v), saving with local clues.\n", err)
-		}
+		enricher = enrichment.New(st, client)
 	}
 
-	if err := st.UpsertGame(rec); err != nil {
+	rec, err = saveAndEnrichApprovedGame(st, rec, enricher)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to bind: %v\n", err)
 		os.Exit(1)
 	}

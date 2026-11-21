@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"f95rpc/internal/config"
+	"f95rpc/internal/enrichment"
 	"f95rpc/internal/f95api"
 	"f95rpc/internal/importers"
 	"f95rpc/internal/presence"
@@ -34,12 +36,16 @@ type Watcher struct {
 	stopChan chan struct{}
 	running  bool
 
+	enrichmentCancel context.CancelFunc
+	enrichmentDone   chan struct{}
+
 	// Event hooks (useful for CLI logging or UI integration).
-	// Poll callbacks run synchronously after releasing the watcher lock.
+	// Poll and enrichment-error callbacks run synchronously outside the watcher lock.
 	OnActiveGameChange    func(game *presence.ActiveGame, folder string)
 	OnGameStopped         func(folder string)
 	OnUnconfirmedDetected func(folder string, candidates []f95api.SearchHit)
 	OnPollError           func(err error)
+	OnEnrichmentError     func(err error)
 }
 
 // NewWatcher initializes a new process watcher instance.
@@ -114,11 +120,36 @@ func (w *Watcher) Start() {
 	}
 	w.running = true
 	w.stopChan = make(chan struct{})
+	stopChan := w.stopChan
+	enrichmentCtx, cancelEnrichment := context.WithCancel(context.Background())
+	w.enrichmentCancel = cancelEnrichment
+	enrichmentDone := make(chan struct{})
+	w.enrichmentDone = enrichmentDone
+	enrichmentErrors := make(chan error, 1)
+	var enricher *enrichment.Enricher
+	if w.api != nil && w.cfg.F95APIKey != "" {
+		enricher = enrichment.New(w.store, w.api)
+	}
 	interval := time.Duration(w.cfg.PollIntervalSeconds) * time.Second
 	if interval < 1*time.Second {
 		interval = 5 * time.Second
 	}
 	w.mu.Unlock()
+
+	// Network work must never run under w.mu or on the process-polling path.
+	if enricher != nil {
+		go func() {
+			defer close(enrichmentDone)
+			enricher.Run(enrichmentCtx, func(err error) {
+				select {
+				case enrichmentErrors <- err:
+				case <-enrichmentCtx.Done():
+				}
+			})
+		}()
+	} else {
+		close(enrichmentDone)
+	}
 
 	// Initial poll immediately
 	if err := w.PollOnce(); err != nil && w.OnPollError != nil {
@@ -130,9 +161,20 @@ func (w *Watcher) Start() {
 		defer ticker.Stop()
 		for {
 			select {
-			case <-w.stopChan:
+			case <-stopChan:
 				return
+			case err := <-enrichmentErrors:
+				if enrichmentCtx.Err() != nil {
+					return
+				}
+				// Dispatch outside the worker so callbacks can safely call Stop, which joins it.
+				if w.OnEnrichmentError != nil {
+					w.OnEnrichmentError(err)
+				}
 			case <-ticker.C:
+				if enrichmentCtx.Err() != nil {
+					return
+				}
 				if err := w.PollOnce(); err != nil && w.OnPollError != nil {
 					w.OnPollError(err)
 				}
@@ -144,8 +186,12 @@ func (w *Watcher) Start() {
 // Stop cleanly stops the background watcher and clears presence.
 func (w *Watcher) Stop() {
 	w.mu.Lock()
+	enrichmentDone := w.enrichmentDone
 	if !w.running {
 		w.mu.Unlock()
+		if enrichmentDone != nil {
+			<-enrichmentDone
+		}
 		return
 	}
 	w.running = false
@@ -153,10 +199,17 @@ func (w *Watcher) Stop() {
 	w.currentActiveFolder = ""
 	w.currentActiveGame = nil
 	w.presenceActive = false
+	cancelEnrichment := w.enrichmentCancel
 	w.mu.Unlock()
 
+	if cancelEnrichment != nil {
+		cancelEnrichment()
+	}
 	if w.presence != nil {
 		_ = w.presence.Clear()
+	}
+	if enrichmentDone != nil {
+		<-enrichmentDone
 	}
 }
 
@@ -242,6 +295,7 @@ func (w *Watcher) PollOnce() error {
 
 			seenFolders[normFolder] = true
 			if session, exists := w.activeSessions[normFolder]; exists {
+				session.Game = game
 				session.PID = bestProc.PID
 				session.LastSeenAt = now
 				if bestProc.WindowTitle != "" {
@@ -378,7 +432,8 @@ func (w *Watcher) syncPresenceLocked(foregroundPID uint32, callbacks *[]func()) 
 	activeGame := w.buildActiveGame(selectedSession, selectedFolder)
 
 	// Check if active game changed
-	gameChanged := w.currentActiveFolder != selectedFolder
+	gameChanged := w.currentActiveFolder != selectedFolder || w.currentActiveGame == nil ||
+		*w.currentActiveGame != *activeGame
 	w.currentActiveFolder = selectedFolder
 	w.currentActiveGame = activeGame
 

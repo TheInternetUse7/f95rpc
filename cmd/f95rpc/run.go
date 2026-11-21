@@ -157,6 +157,9 @@ func handleRun(args []string) {
 	w.OnPollError = func(err error) {
 		fmt.Fprintf(os.Stderr, "[POLL ERROR] %v\n", err)
 	}
+	w.OnEnrichmentError = func(err error) {
+		fmt.Fprintf(os.Stderr, "[METADATA WARN] %v (will retry)\n", err)
+	}
 
 	// Start Watcher Loop
 	w.Start()

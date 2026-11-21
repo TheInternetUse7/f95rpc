@@ -191,6 +191,7 @@ func (s *Store) UpsertGame(g *GameRecord) error {
 		lastFetched = 0
 	}
 
+	// Sparse updates retain same-thread metadata; rebinding invalidates the previous catalog and fetch time.
 	_, err := s.db.Exec(`
 		INSERT INTO games (
 			folder_path, thread_id, approved, source, title, creator, engine, status, rating,
@@ -201,22 +202,22 @@ func (s *Store) UpsertGame(g *GameRecord) error {
 			thread_id = excluded.thread_id,
 			approved = excluded.approved,
 			source = excluded.source,
-			title = CASE WHEN excluded.title != '' THEN excluded.title ELSE games.title END,
-			creator = CASE WHEN excluded.creator != '' THEN excluded.creator ELSE games.creator END,
-			engine = CASE WHEN excluded.engine != '' THEN excluded.engine ELSE games.engine END,
-			status = CASE WHEN excluded.status != '' THEN excluded.status ELSE games.status END,
-			rating = CASE WHEN excluded.rating > 0 THEN excluded.rating ELSE games.rating END,
-			cover_url = CASE WHEN excluded.cover_url != '' THEN excluded.cover_url ELSE games.cover_url END,
-			banner_url = CASE WHEN excluded.banner_url != '' THEN excluded.banner_url ELSE games.banner_url END,
-			thread_url = CASE WHEN excluded.thread_url != '' THEN excluded.thread_url ELSE games.thread_url END,
-			catalog_version = CASE WHEN excluded.catalog_version != '' THEN excluded.catalog_version ELSE games.catalog_version END,
+			title = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.title != '' THEN excluded.title ELSE games.title END,
+			creator = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.creator != '' THEN excluded.creator ELSE games.creator END,
+			engine = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.engine != '' THEN excluded.engine ELSE games.engine END,
+			status = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.status != '' THEN excluded.status ELSE games.status END,
+			rating = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.rating > 0 THEN excluded.rating ELSE games.rating END,
+			cover_url = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.cover_url != '' THEN excluded.cover_url ELSE games.cover_url END,
+			banner_url = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.banner_url != '' THEN excluded.banner_url ELSE games.banner_url END,
+			thread_url = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.thread_url != '' THEN excluded.thread_url ELSE games.thread_url END,
+			catalog_version = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.catalog_version != '' THEN excluded.catalog_version ELSE games.catalog_version END,
 			installed_version = CASE WHEN excluded.installed_version != '' THEN excluded.installed_version ELSE games.installed_version END,
 			detected_engine = CASE WHEN excluded.detected_engine != '' THEN excluded.detected_engine ELSE games.detected_engine END,
 			exe_hint = CASE WHEN excluded.exe_hint != '' THEN excluded.exe_hint ELSE games.exe_hint END,
 			cover_mode = CASE WHEN excluded.cover_mode != '' THEN excluded.cover_mode ELSE games.cover_mode END,
 			custom_title = CASE WHEN excluded.custom_title != '' THEN excluded.custom_title ELSE games.custom_title END,
 			ignored = excluded.ignored,
-			last_fetched_at = CASE WHEN excluded.last_fetched_at > 0 THEN excluded.last_fetched_at ELSE games.last_fetched_at END,
+			last_fetched_at = CASE WHEN games.thread_id IS NOT excluded.thread_id OR excluded.last_fetched_at > 0 THEN excluded.last_fetched_at ELSE games.last_fetched_at END,
 			updated_at = excluded.updated_at
 	`,
 		norm, g.ThreadID, approvedVal, g.Source, g.Title, g.Creator, g.Engine, g.Status, g.Rating,
