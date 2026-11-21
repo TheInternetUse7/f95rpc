@@ -15,6 +15,9 @@ const runKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
 func IsEnabled(appName string) (bool, error) {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE)
 	if err != nil {
+		if err == registry.ErrNotExist {
+			return false, nil
+		}
 		return false, err
 	}
 	defer k.Close()
@@ -31,9 +34,9 @@ func IsEnabled(appName string) (bool, error) {
 
 // Enable registers appName to start automatically on Windows logon with exePath.
 func Enable(appName, exePath string) error {
-	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("open registry run key: %w", err)
+		return fmt.Errorf("create registry run key: %w", err)
 	}
 	defer k.Close()
 
@@ -45,6 +48,9 @@ func Enable(appName, exePath string) error {
 func Disable(appName string) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
 	if err != nil {
+		if err == registry.ErrNotExist {
+			return nil
+		}
 		return fmt.Errorf("open registry run key: %w", err)
 	}
 	defer k.Close()
