@@ -1,0 +1,43 @@
+# Binaries and executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Local databases and SQLite WAL files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Local development configuration (keep config.example.yaml)
+config.yaml
+
+# Test outputs
+*.test
+*.out
+coverage.html
+
+# Temporary files and logs
+tmp/
+temp/
+*.tmp
+*.log
+
+# Scratch directory
+scratch/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS artifacts
+Thumbs.db
+desktop.ini
+.DS_Store

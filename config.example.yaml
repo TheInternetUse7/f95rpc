@@ -1,0 +1,98 @@
+# f95rpc configuration file
+# Place this file at:
+#   - Development: ./config.yaml (repository root)
+#   - Installed:   %APPDATA%\f95rpc\config.yaml
+
+# F95ApiDB key (optional, can also be provided via F95API_KEY environment variable)
+f95api_key: ""
+
+# Discord Application Client ID (BYO Application ID from https://discord.com/developers/applications)
+discord_client_id: ""
+
+# Library Roots: Open-ended list of your game directories
+# Safe Windows matching: normalized, case-folded, boundary-checked, longest-prefix nested matching
+roots:
+  - "D:\\Games"
+  # - "E:\\VisualNovels"
+
+# Paths or subfolders to ignore within roots
+exclude_paths:
+  - "_mods"
+  - "backups"
+  - "installers"
+  - ".git"
+  - ".venv"
+
+# Concurrent Game Resolution:
+#   - "lock_first": locks onto first-detected game until it exits (default, zero flicker when alt-tabbing)
+#   - "foreground": switches presence to whichever approved game has active window focus
+selection_mode: "lock_first"
+
+# Process polling interval in seconds
+poll_interval_seconds: 5
+
+# Global stealth pause (when true, Discord Rich Presence is cleared and idle)
+stealth_mode: false
+
+# Default cover display:
+#   - "f95_logo": privacy-friendly default logo
+#   - "game_cover": show the game's actual banner/cover art from F95zone
+default_cover_mode: "f95_logo"
+
+# Fallback logo URL (official F95zone logo)
+default_logo_url: "https://f95zone.to/assets/images/logo-sqw192.png"
+
+# Whether to attach a clickable "View on F95zone" button to your Discord presence
+show_thread_button: true
+
+# Whether to attach a clickable repository link button to your Discord presence
+show_repo_button: true
+repo_button_label: "GitHub"
+repo_button_url: "https://github.com/TheInternetUse7/f95rpc"
+
+# Discord status display mode ("name" displays "Playing <name>", "details" displays "Playing <details>")
+display_type: "name"
+
+# Discord activity template strings
+# Variables: {title}, {installed_version}, {creator}, {engine}, {status}, {rating}
+templates:
+  name: "{title}"
+  details: "v{installed_version} • {creator}"
+  state: "Engine: {engine}"
+  large_text: "{title} ({rating}/5)"
+  small_text: "Engine: {engine}"
+  button_label: "View on F95zone"
+  repo_button_label: "GitHub"
+
+# Library importer default settings
+importers:
+  f95checker:
+    # Optional path override (defaults to %APPDATA%\f95checker\db.sqlite3)
+    db_path: ""
+    # Only import games located inside configured roots
+    roots_only: false
+
+  playnite:
+    # Optional path override (auto-discovered via %APPDATA%\Playnite\config.json)
+    library_path: ""
+    # Filter by category names (comma-separated or list)
+    categories: []
+    # Exclude specific categories
+    exclude_categories: []
+    # If true, only import games that already have an f95zone.to thread link in Playnite
+    f95_link_only: false
+    # Ignore uninstalled games that have no InstallDirectory on disk
+    installed_only: true
+    # Only import games located inside configured roots
+    roots_only: false
+    # Include games marked hidden in Playnite
+    include_hidden: false
+    # Automatically approve games with unambiguous explicit F95 thread links
+    auto_approve_linked: true
+
+# Per-game overrides keyed by normalized folder path or thread_id
+games:
+  # "d:\\games\\eternum":
+  #   custom_title: "Eternum"
+  #   cover_mode: "game_cover"
+  #   enabled: true
